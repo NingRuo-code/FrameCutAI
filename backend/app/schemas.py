@@ -60,3 +60,30 @@ class DocumentResponse(BaseModel):
     markdown: str
     quality_summary: dict[str, Any]
     updated_at: datetime
+
+
+class QARequest(BaseModel):
+    question: str
+
+
+class EvidenceSegmentResponse(BaseModel):
+    segment_id: str
+    start_seconds: int
+    end_seconds: int
+    summary: str
+    transcript_snippet: str
+    frame_ids: list[str]
+
+
+class QAResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    video_id: str
+    question: str
+    answer: str
+    source_type: str
+    evidence_segments: list[EvidenceSegmentResponse]
+    confidence: float
+    refusal_reason: str | None
+    created_at: datetime

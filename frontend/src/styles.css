@@ -467,6 +467,78 @@ li {
   font-weight: 700;
 }
 
+.qa-form {
+  display: grid;
+  gap: 10px;
+}
+
+.qa-form textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid #c9d5dd;
+  border-radius: 8px;
+  background: #f8fafb;
+}
+
+.qa-form button {
+  min-height: 36px;
+  border: 1px solid #7fa6bb;
+  border-radius: 8px;
+  background: #32607f;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.qa-result {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.qa-result-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #32607f;
+  font-size: 13px;
+}
+
+.qa-question {
+  margin-bottom: 0;
+  font-weight: 700;
+}
+
+.qa-refusal {
+  margin-bottom: 0;
+  color: #9b3329;
+}
+
+.qa-evidence-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qa-evidence-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f8fafb;
+}
+
+.qa-evidence-list small {
+  color: #526371;
+  overflow-wrap: anywhere;
+}
+
 .player-placeholder {
   display: grid;
   min-height: 180px;

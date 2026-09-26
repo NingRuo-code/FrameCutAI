@@ -97,3 +97,21 @@ class GeneratedDocument(Base):
         default=utc_now,
         onupdate=utc_now,
     )
+
+
+class QALog(Base):
+    __tablename__ = "qa_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    video_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("videos.id", ondelete="CASCADE"),
+        index=True,
+    )
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    source_type: Mapped[str] = mapped_column(String(80), default="current_video")
+    evidence_segments: Mapped[list] = mapped_column(JSON)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    refusal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

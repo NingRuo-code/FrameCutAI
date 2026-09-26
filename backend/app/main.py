@@ -14,10 +14,13 @@ from starlette.responses import StreamingResponse
 
 from app.database import SessionLocal, get_db, init_db
 from app.critic import critique_document, make_warning
-from app.models import GeneratedDocument, ProviderCall, TaskEvent, Video, VideoContext
+from app.models import GeneratedDocument, ProviderCall, QALog, TaskEvent, Video, VideoContext
+from app.qa import answer_from_context, list_qa_logs, persist_qa_log
 from app.schemas import (
     AnalyzeResponse,
     DocumentResponse,
+    QARequest,
+    QAResponse,
     ProviderCallResponse,
     TaskEventResponse,
     VideoContextResponse,
@@ -210,6 +213,38 @@ def get_video_document(video_id: str, db: Session = Depends(get_db)) -> Document
     )
 
 
+@app.post("/videos/{video_id}/qa", response_model=QAResponse)
+def ask_video_question(
+    video_id: str,
+    request: QARequest,
+    db: Session = Depends(get_db),
+) -> QAResponse:
+    if db.get(Video, video_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
+
+    context = get_video_context(db, video_id)
+    if context is None:
+        qa_result = {
+            "answer": "",
+            "source_type": "current_video",
+            "evidence_segments": [],
+            "confidence": 0.0,
+            "refusal_reason": "VideoContext is not available for this Video.",
+        }
+    else:
+        qa_result = answer_from_context(context.context_json, request.question)
+
+    log = persist_qa_log(db, video_id, request.question, qa_result)
+    return QAResponse.model_validate(log)
+
+
+@app.get("/videos/{video_id}/qa/history", response_model=list[QAResponse])
+def get_video_qa_history(video_id: str, db: Session = Depends(get_db)) -> list[QAResponse]:
+    if db.get(Video, video_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
+    return [QAResponse.model_validate(log) for log in list_qa_logs(db, video_id)]
+
+
 def format_sse_event(event: TaskEventResponse) -> str:
     payload = event.model_dump(mode="json")
     return f"id: {event.id}\nevent: workflow_event\ndata: {json.dumps(payload)}\n\n"
@@ -262,6 +297,8 @@ def delete_video(video_id: str, db: Session = Depends(get_db)) -> None:
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
 
+    for qa_log in db.scalars(select(QALog).where(QALog.video_id == video_id)):
+        db.delete(qa_log)
     for document in db.scalars(select(GeneratedDocument).where(GeneratedDocument.video_id == video_id)):
         db.delete(document)
     for provider_call in db.scalars(select(ProviderCall).where(ProviderCall.video_id == video_id)):

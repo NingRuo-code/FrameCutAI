@@ -105,6 +105,27 @@ type GeneratedDocument = {
   updated_at: string;
 };
 
+type EvidenceSegment = {
+  segment_id: string;
+  start_seconds: number;
+  end_seconds: number;
+  summary: string;
+  transcript_snippet: string;
+  frame_ids: string[];
+};
+
+type QAResult = {
+  id: number;
+  video_id: string;
+  question: string;
+  answer: string;
+  source_type: string;
+  evidence_segments: EvidenceSegment[];
+  confidence: number;
+  refusal_reason: string | null;
+  created_at: string;
+};
+
 const health = ref<HealthState | null>(null);
 const healthError = ref("");
 const videos = ref<VideoTask[]>([]);
@@ -112,14 +133,18 @@ const activeVideoId = ref("");
 const taskEvents = ref<TaskEvent[]>([]);
 const videoContext = ref<VideoContextResponse | null>(null);
 const generatedDocument = ref<GeneratedDocument | null>(null);
+const qaHistory = ref<QAResult[]>([]);
 const eventSource = ref<EventSource | null>(null);
 const selectedFile = ref<File | null>(null);
+const qaQuestion = ref("");
 const isUploading = ref(false);
 const isAnalyzing = ref(false);
+const isAsking = ref(false);
 const taskError = ref("");
 const taskNotice = ref("");
 const contextError = ref("");
 const documentError = ref("");
+const qaError = ref("");
 
 const hasVideos = computed(() => videos.value.length > 0);
 const activeVideo = computed(
@@ -132,6 +157,7 @@ const renderedDocument = computed(() =>
   generatedDocument.value ? renderMarkdown(generatedDocument.value.markdown) : "",
 );
 const documentQuality = computed(() => generatedDocument.value?.quality_summary ?? null);
+const latestQaResult = computed(() => qaHistory.value[0] ?? null);
 
 async function loadHealth() {
   try {
@@ -209,6 +235,7 @@ async function selectVideo(video: VideoTask) {
     loadEventHistory(video.id),
     loadVideoContext(video.id),
     loadGeneratedDocument(video.id),
+    loadQaHistory(video.id),
   ]);
 }
 
@@ -280,6 +307,59 @@ async function loadGeneratedDocument(videoId = activeVideoId.value) {
   } catch (error) {
     documentError.value =
       error instanceof Error ? error.message : "Unable to load document";
+  }
+}
+
+async function loadQaHistory(videoId = activeVideoId.value) {
+  qaError.value = "";
+  if (!videoId) {
+    qaHistory.value = [];
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/videos/${videoId}/qa/history`);
+    if (!response.ok) {
+      throw new Error(`Could not load QA history: ${response.status}`);
+    }
+    qaHistory.value = await response.json();
+  } catch (error) {
+    qaError.value =
+      error instanceof Error ? error.message : "Unable to load QA history";
+  }
+}
+
+async function askCurrentVideoQuestion() {
+  if (!activeVideoId.value) {
+    qaError.value = "Select a Video before asking.";
+    return;
+  }
+  const question = qaQuestion.value.trim();
+  if (!question) {
+    qaError.value = "Enter a question for the current Video.";
+    return;
+  }
+
+  qaError.value = "";
+  isAsking.value = true;
+
+  try {
+    const response = await fetch(`/api/videos/${activeVideoId.value}/qa`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    if (!response.ok) {
+      throw new Error(`QA failed: ${response.status}`);
+    }
+    const result: QAResult = await response.json();
+    qaHistory.value = [result, ...qaHistory.value.filter((item) => item.id !== result.id)];
+    qaQuestion.value = "";
+  } catch (error) {
+    qaError.value =
+      error instanceof Error ? error.message : "Unable to answer question";
+  } finally {
+    isAsking.value = false;
   }
 }
 
@@ -360,6 +440,7 @@ function connectEventStream(videoId: string) {
       void loadVideos();
       void loadVideoContext(videoId);
       void loadGeneratedDocument(videoId);
+      void loadQaHistory(videoId);
     }
   });
 
@@ -387,6 +468,7 @@ async function startAnalysis(video: VideoTask) {
     await loadVideos();
     await loadVideoContext(video.id);
     await loadGeneratedDocument(video.id);
+    await loadQaHistory(video.id);
   } catch (error) {
     taskError.value =
       error instanceof Error ? error.message : "Unable to start Workflow";
@@ -414,6 +496,7 @@ async function deleteVideo(video: VideoTask) {
       taskEvents.value = [];
       videoContext.value = null;
       generatedDocument.value = null;
+      qaHistory.value = [];
     }
     await loadVideos();
   } catch (error) {
@@ -655,7 +738,47 @@ onMounted(async () => {
 
       <section class="placeholder-block qa-shell">
         <h2>Current-Video QA</h2>
-        <p>Evidence-backed answers and refusal states will appear here.</p>
+        <form class="qa-form" @submit.prevent="askCurrentVideoQuestion">
+          <textarea
+            v-model="qaQuestion"
+            rows="3"
+            placeholder="Ask about the current VideoContext"
+            :disabled="isAsking || !activeVideo"
+          />
+          <button type="submit" :disabled="isAsking || !activeVideo">
+            {{ isAsking ? "Answering..." : "Ask" }}
+          </button>
+        </form>
+        <p v-if="qaError" class="error-text">{{ qaError }}</p>
+        <p v-else-if="!activeVideo">Select or upload a Video before asking.</p>
+        <p v-else-if="!latestQaResult">
+          Answers will use current-Video Evidence only.
+        </p>
+
+        <article v-if="latestQaResult" class="qa-result">
+          <div class="qa-result-header">
+            <strong>{{ latestQaResult.source_type }}</strong>
+            <span>confidence {{ latestQaResult.confidence.toFixed(2) }}</span>
+          </div>
+          <p class="qa-question">{{ latestQaResult.question }}</p>
+          <p v-if="latestQaResult.refusal_reason" class="qa-refusal">
+            {{ latestQaResult.refusal_reason }}
+          </p>
+          <p v-else>{{ latestQaResult.answer }}</p>
+
+          <ul v-if="latestQaResult.evidence_segments.length > 0" class="qa-evidence-list">
+            <li
+              v-for="evidence in latestQaResult.evidence_segments"
+              :key="`${latestQaResult.id}-${evidence.segment_id}`"
+            >
+              <strong>
+                {{ evidence.segment_id }} @ {{ evidence.start_seconds }}s-{{ evidence.end_seconds }}s
+              </strong>
+              <span>{{ evidence.summary }}</span>
+              <small>Frames: {{ evidence.frame_ids.join(", ") || "none" }}</small>
+            </li>
+          </ul>
+        </article>
       </section>
     </section>
   </main>
