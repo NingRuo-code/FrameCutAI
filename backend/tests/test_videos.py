@@ -46,6 +46,22 @@ def test_video_upload_list_detail_and_cleanup() -> None:
         assert missing.status_code == 404
 
 
+def test_video_media_endpoint_serves_uploaded_video_bytes() -> None:
+    with TestClient(app) as client:
+        upload = client.post(
+            "/videos",
+            files={"file": ("playable.mp4", b"fake-playable-video", "video/mp4")},
+        )
+        assert upload.status_code == 201
+        created = upload.json()
+
+        media = client.get(f"/videos/{created['id']}/media")
+
+        assert media.status_code == 200
+        assert media.content == b"fake-playable-video"
+        assert media.headers["content-type"].startswith("video/mp4")
+
+
 def test_video_upload_rejects_unsupported_extension() -> None:
     with TestClient(app) as client:
         response = client.post(

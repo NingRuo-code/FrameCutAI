@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from starlette.responses import StreamingResponse
+from starlette.responses import FileResponse, StreamingResponse
 
 from app.database import SessionLocal, get_db, init_db
 from app.critic import critique_document, make_warning
@@ -115,6 +115,26 @@ def get_video(video_id: str, db: Session = Depends(get_db)) -> Video:
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
     return video
+
+
+@app.get("/videos/{video_id}/media")
+def get_video_media(video_id: str, db: Session = Depends(get_db)) -> FileResponse:
+    video = db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
+
+    source_path = Path(video.file_path)
+    if not source_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video media not found.",
+        )
+
+    return FileResponse(
+        source_path,
+        media_type=video.content_type,
+        filename=video.original_filename,
+    )
 
 
 @app.post(

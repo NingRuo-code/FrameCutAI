@@ -126,6 +126,7 @@ type QAResult = {
   created_at: string;
 };
 
+const videoPlayer = ref<HTMLVideoElement | null>(null);
 const health = ref<HealthState | null>(null);
 const healthError = ref("");
 const videos = ref<VideoTask[]>([]);
@@ -145,10 +146,14 @@ const taskNotice = ref("");
 const contextError = ref("");
 const documentError = ref("");
 const qaError = ref("");
+const playerNotice = ref("");
 
 const hasVideos = computed(() => videos.value.length > 0);
 const activeVideo = computed(
   () => videos.value.find((video) => video.id === activeVideoId.value) ?? null,
+);
+const activeVideoMediaUrl = computed(() =>
+  activeVideoId.value ? `/api/videos/${activeVideoId.value}/media` : "",
 );
 const contextSegments = computed(() => videoContext.value?.context.segments ?? []);
 const contextEvidence = computed(() => videoContext.value?.context.evidence ?? []);
@@ -231,6 +236,7 @@ async function uploadVideo() {
 
 async function selectVideo(video: VideoTask) {
   activeVideoId.value = video.id;
+  playerNotice.value = "";
   await Promise.all([
     loadEventHistory(video.id),
     loadVideoContext(video.id),
@@ -373,9 +379,40 @@ function escapeHtml(value: string) {
 
 function renderInlineMarkdown(value: string) {
   return escapeHtml(value).replace(
-    /\[([^\]]+)\]/g,
-    '<span class="evidence-chip">$1</span>',
+    /\[Evidence:\s+(segment-\d+)\s+@\s+(\d+)s-(\d+)s\]/g,
+    (_match, segmentId: string, startSeconds: string, endSeconds: string) =>
+      `<button class="evidence-jump" type="button" data-jump-seconds="${startSeconds}">Evidence: ${segmentId} @ ${startSeconds}s-${endSeconds}s</button>`,
   );
+}
+
+function jumpToTimestamp(seconds: number) {
+  const player = videoPlayer.value;
+  playerNotice.value = `Jumped to ${seconds}s`;
+  if (!player) {
+    return;
+  }
+
+  try {
+    player.currentTime = seconds;
+    void player.play().catch(() => {
+      // Browsers can block programmatic play; seeking still completes.
+    });
+  } catch {
+    playerNotice.value = `Queued jump to ${seconds}s`;
+  }
+}
+
+function onDocumentClick(event: MouseEvent) {
+  const target = event.target as HTMLElement | null;
+  const button = target?.closest<HTMLButtonElement>("[data-jump-seconds]");
+  if (!button) {
+    return;
+  }
+
+  const seconds = Number(button.dataset.jumpSeconds);
+  if (Number.isFinite(seconds)) {
+    jumpToTimestamp(seconds);
+  }
 }
 
 function renderMarkdown(markdown: string) {
@@ -497,6 +534,7 @@ async function deleteVideo(video: VideoTask) {
       videoContext.value = null;
       generatedDocument.value = null;
       qaHistory.value = [];
+      playerNotice.value = "";
     }
     await loadVideos();
   } catch (error) {
@@ -708,7 +746,16 @@ onMounted(async () => {
     <section class="panel output-panel" aria-label="Document, player, and QA">
       <section class="placeholder-block player-shell">
         <h2>Source Video</h2>
-        <div class="player-placeholder">Player timestamp jumps land here</div>
+        <video
+          v-if="activeVideo"
+          ref="videoPlayer"
+          class="source-video-player"
+          :src="activeVideoMediaUrl"
+          controls
+          preload="metadata"
+        />
+        <div v-else class="player-placeholder">Select a Video to load the player</div>
+        <p v-if="playerNotice" class="player-notice">{{ playerNotice }}</p>
       </section>
 
       <section class="placeholder-block document-panel">
@@ -732,6 +779,7 @@ onMounted(async () => {
         <article
           v-if="generatedDocument"
           class="markdown-document"
+          @click="onDocumentClick"
           v-html="renderedDocument"
         />
       </section>
@@ -772,7 +820,13 @@ onMounted(async () => {
               :key="`${latestQaResult.id}-${evidence.segment_id}`"
             >
               <strong>
-                {{ evidence.segment_id }} @ {{ evidence.start_seconds }}s-{{ evidence.end_seconds }}s
+                <button
+                  class="evidence-jump"
+                  type="button"
+                  @click="jumpToTimestamp(evidence.start_seconds)"
+                >
+                  {{ evidence.segment_id }} @ {{ evidence.start_seconds }}s-{{ evidence.end_seconds }}s
+                </button>
               </strong>
               <span>{{ evidence.summary }}</span>
               <small>Frames: {{ evidence.frame_ids.join(", ") || "none" }}</small>

@@ -456,7 +456,7 @@ li {
   overflow-wrap: anywhere;
 }
 
-.evidence-chip {
+.evidence-jump {
   display: inline-block;
   padding: 1px 6px;
   border: 1px solid #b9d7c5;
@@ -465,6 +465,13 @@ li {
   color: #1e6b3b;
   font-size: 12px;
   font-weight: 700;
+  text-align: left;
+}
+
+.evidence-jump:hover {
+  border-color: #7fa6bb;
+  background: #eef6fa;
+  color: #32607f;
 }
 
 .qa-form {
@@ -547,6 +554,23 @@ li {
   border-radius: 8px;
   background: #edf3f6;
   color: #526371;
+}
+
+.source-video-player {
+  display: block;
+  width: 100%;
+  max-height: 280px;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  background: #17202a;
+}
+
+.player-notice {
+  margin-top: 10px;
+  margin-bottom: 0;
+  color: #32607f;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .error-text {
