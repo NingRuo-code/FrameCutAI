@@ -368,6 +368,60 @@ li {
   font-size: 13px;
 }
 
+.document-panel {
+  max-height: 52vh;
+  overflow: auto;
+}
+
+.markdown-document {
+  display: grid;
+  gap: 12px;
+}
+
+.markdown-document h1,
+.markdown-document h2,
+.markdown-document h3,
+.markdown-document p,
+.markdown-document ul {
+  margin: 0;
+}
+
+.markdown-document h1 {
+  font-size: 22px;
+}
+
+.markdown-document h2 {
+  padding-top: 8px;
+  border-top: 1px solid #dbe3e8;
+  font-size: 17px;
+}
+
+.markdown-document h3 {
+  color: #32607f;
+  font-size: 14px;
+}
+
+.markdown-document ul {
+  display: grid;
+  gap: 8px;
+  padding-left: 18px;
+}
+
+.markdown-document li {
+  overflow-wrap: anywhere;
+}
+
+.evidence-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid #b9d7c5;
+  border-radius: 999px;
+  background: #f4fbf6;
+  color: #1e6b3b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .player-placeholder {
   display: grid;
   min-height: 180px;

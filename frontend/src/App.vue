@@ -90,12 +90,19 @@ type VideoContextResponse = {
   updated_at: string;
 };
 
+type GeneratedDocument = {
+  video_id: string;
+  markdown: string;
+  updated_at: string;
+};
+
 const health = ref<HealthState | null>(null);
 const healthError = ref("");
 const videos = ref<VideoTask[]>([]);
 const activeVideoId = ref("");
 const taskEvents = ref<TaskEvent[]>([]);
 const videoContext = ref<VideoContextResponse | null>(null);
+const generatedDocument = ref<GeneratedDocument | null>(null);
 const eventSource = ref<EventSource | null>(null);
 const selectedFile = ref<File | null>(null);
 const isUploading = ref(false);
@@ -103,6 +110,7 @@ const isAnalyzing = ref(false);
 const taskError = ref("");
 const taskNotice = ref("");
 const contextError = ref("");
+const documentError = ref("");
 
 const hasVideos = computed(() => videos.value.length > 0);
 const activeVideo = computed(
@@ -111,6 +119,9 @@ const activeVideo = computed(
 const contextSegments = computed(() => videoContext.value?.context.segments ?? []);
 const contextEvidence = computed(() => videoContext.value?.context.evidence ?? []);
 const providerCalls = computed(() => videoContext.value?.provider_calls ?? []);
+const renderedDocument = computed(() =>
+  generatedDocument.value ? renderMarkdown(generatedDocument.value.markdown) : "",
+);
 
 async function loadHealth() {
   try {
@@ -184,7 +195,11 @@ async function uploadVideo() {
 
 async function selectVideo(video: VideoTask) {
   activeVideoId.value = video.id;
-  await Promise.all([loadEventHistory(video.id), loadVideoContext(video.id)]);
+  await Promise.all([
+    loadEventHistory(video.id),
+    loadVideoContext(video.id),
+    loadGeneratedDocument(video.id),
+  ]);
 }
 
 async function loadEventHistory(videoId = activeVideoId.value) {
@@ -235,6 +250,92 @@ async function loadVideoContext(videoId = activeVideoId.value) {
   }
 }
 
+async function loadGeneratedDocument(videoId = activeVideoId.value) {
+  documentError.value = "";
+  if (!videoId) {
+    generatedDocument.value = null;
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/videos/${videoId}/document`);
+    if (response.status === 404) {
+      generatedDocument.value = null;
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`Could not load document: ${response.status}`);
+    }
+    generatedDocument.value = await response.json();
+  } catch (error) {
+    documentError.value =
+      error instanceof Error ? error.message : "Unable to load document";
+  }
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function renderInlineMarkdown(value: string) {
+  return escapeHtml(value).replace(
+    /\[([^\]]+)\]/g,
+    '<span class="evidence-chip">$1</span>',
+  );
+}
+
+function renderMarkdown(markdown: string) {
+  const lines = markdown.split("\n");
+  const html: string[] = [];
+  let inList = false;
+
+  function closeList() {
+    if (inList) {
+      html.push("</ul>");
+      inList = false;
+    }
+  }
+
+  for (const line of lines) {
+    if (!line.trim()) {
+      closeList();
+      continue;
+    }
+    if (line.startsWith("# ")) {
+      closeList();
+      html.push(`<h1>${renderInlineMarkdown(line.slice(2))}</h1>`);
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      closeList();
+      html.push(`<h2>${renderInlineMarkdown(line.slice(3))}</h2>`);
+      continue;
+    }
+    if (line.startsWith("### ")) {
+      closeList();
+      html.push(`<h3>${renderInlineMarkdown(line.slice(4))}</h3>`);
+      continue;
+    }
+    if (line.startsWith("- ") || line.startsWith("  - ")) {
+      if (!inList) {
+        html.push("<ul>");
+        inList = true;
+      }
+      const content = line.replace(/^\s*-\s*/, "");
+      html.push(`<li>${renderInlineMarkdown(content)}</li>`);
+      continue;
+    }
+    closeList();
+    html.push(`<p>${renderInlineMarkdown(line)}</p>`);
+  }
+  closeList();
+  return html.join("");
+}
+
 function connectEventStream(videoId: string) {
   eventSource.value?.close();
   const source = new EventSource(`/api/videos/${videoId}/events`);
@@ -248,6 +349,7 @@ function connectEventStream(videoId: string) {
       eventSource.value = null;
       void loadVideos();
       void loadVideoContext(videoId);
+      void loadGeneratedDocument(videoId);
     }
   });
 
@@ -274,6 +376,7 @@ async function startAnalysis(video: VideoTask) {
     connectEventStream(video.id);
     await loadVideos();
     await loadVideoContext(video.id);
+    await loadGeneratedDocument(video.id);
   } catch (error) {
     taskError.value =
       error instanceof Error ? error.message : "Unable to start Workflow";
@@ -300,6 +403,7 @@ async function deleteVideo(video: VideoTask) {
       activeVideoId.value = "";
       taskEvents.value = [];
       videoContext.value = null;
+      generatedDocument.value = null;
     }
     await loadVideos();
   } catch (error) {
@@ -514,9 +618,17 @@ onMounted(async () => {
         <div class="player-placeholder">Player timestamp jumps land here</div>
       </section>
 
-      <section class="placeholder-block">
+      <section class="placeholder-block document-panel">
         <h2>Technical document</h2>
-        <p>Traceable Markdown output and Evidence links will render here.</p>
+        <p v-if="documentError" class="error-text">{{ documentError }}</p>
+        <p v-else-if="!generatedDocument">
+          Run analysis to generate traceable Markdown notes.
+        </p>
+        <article
+          v-else
+          class="markdown-document"
+          v-html="renderedDocument"
+        />
       </section>
 
       <section class="placeholder-block qa-shell">

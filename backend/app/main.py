@@ -13,9 +13,10 @@ from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
 from app.database import SessionLocal, get_db, init_db
-from app.models import ProviderCall, TaskEvent, Video, VideoContext
+from app.models import GeneratedDocument, ProviderCall, TaskEvent, Video, VideoContext
 from app.schemas import (
     AnalyzeResponse,
+    DocumentResponse,
     ProviderCallResponse,
     TaskEventResponse,
     VideoContextResponse,
@@ -29,6 +30,7 @@ from app.storage import (
 )
 from app.workflow import list_task_events, record_task_event, run_mock_workflow
 from app.video_context import get_video_context, list_provider_calls
+from app.writer import get_generated_document
 
 
 class HealthResponse(BaseModel):
@@ -173,6 +175,25 @@ def get_video_context_response(video_id: str, db: Session = Depends(get_db)) -> 
     )
 
 
+@app.get("/videos/{video_id}/document", response_model=DocumentResponse)
+def get_video_document(video_id: str, db: Session = Depends(get_db)) -> DocumentResponse:
+    if db.get(Video, video_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
+
+    document = get_generated_document(db, video_id)
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    return DocumentResponse(
+        video_id=video_id,
+        markdown=document.markdown,
+        updated_at=document.updated_at,
+    )
+
+
 def format_sse_event(event: TaskEventResponse) -> str:
     payload = event.model_dump(mode="json")
     return f"id: {event.id}\nevent: workflow_event\ndata: {json.dumps(payload)}\n\n"
@@ -225,6 +246,8 @@ def delete_video(video_id: str, db: Session = Depends(get_db)) -> None:
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
 
+    for document in db.scalars(select(GeneratedDocument).where(GeneratedDocument.video_id == video_id)):
+        db.delete(document)
     for provider_call in db.scalars(select(ProviderCall).where(ProviderCall.video_id == video_id)):
         db.delete(provider_call)
     for context in db.scalars(select(VideoContext).where(VideoContext.video_id == video_id)):

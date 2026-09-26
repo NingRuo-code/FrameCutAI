@@ -53,3 +53,9 @@ class VideoContextResponse(BaseModel):
     context: dict[str, Any]
     provider_calls: list[ProviderCallResponse]
     updated_at: datetime
+
+
+class DocumentResponse(BaseModel):
+    video_id: str
+    markdown: str
+    updated_at: datetime

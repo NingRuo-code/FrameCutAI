@@ -14,6 +14,7 @@ from app.video_context import (
     score_segments,
     segment_transcript,
 )
+from app.writer import generate_markdown_document, persist_generated_document
 
 
 def record_task_event(
@@ -103,6 +104,9 @@ def run_mock_workflow(video_id: str, _: Iterable[tuple[str, str]] = ()) -> None:
         context["evidence"] = build_evidence(context["segments"])
         append_stage(context, "evidence", "Evidence summaries prepared from transcript and Frames.")
         persist_video_context(db, video_id, context)
+
+        markdown = generate_markdown_document(context)
+        persist_generated_document(db, video_id, markdown)
         record_task_event(
             db,
             video_id,
