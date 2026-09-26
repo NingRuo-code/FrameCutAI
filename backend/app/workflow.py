@@ -14,6 +14,7 @@ from app.video_context import (
     score_segments,
     segment_transcript,
 )
+from app.critic import critique_document
 from app.writer import generate_markdown_document, persist_generated_document
 
 
@@ -107,12 +108,20 @@ def run_mock_workflow(video_id: str, _: Iterable[tuple[str, str]] = ()) -> None:
 
         markdown = generate_markdown_document(context)
         persist_generated_document(db, video_id, markdown)
+        quality_summary = critique_document(context, markdown)
         record_task_event(
             db,
             video_id,
             "document",
             "info",
             "Traceable document placeholder prepared.",
+        )
+        record_task_event(
+            db,
+            video_id,
+            "critic",
+            "info" if quality_summary["status"] == "passed" else "warning",
+            f"Critic completed with {quality_summary['warning_count']} warnings.",
         )
 
         video = db.get(Video, video_id)

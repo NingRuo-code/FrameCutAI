@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
 from app.database import SessionLocal, get_db, init_db
+from app.critic import critique_document, make_warning
 from app.models import GeneratedDocument, ProviderCall, TaskEvent, Video, VideoContext
 from app.schemas import (
     AnalyzeResponse,
@@ -186,10 +187,25 @@ def get_video_document(video_id: str, db: Session = Depends(get_db)) -> Document
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found.",
         )
+    context = get_video_context(db, video_id)
+    if context is None:
+        quality_summary = {
+            "status": "warning",
+            "warning_count": 1,
+            "warnings": [
+                make_warning(
+                    "missing-video-context",
+                    "Document cannot be checked because VideoContext is missing.",
+                )
+            ],
+        }
+    else:
+        quality_summary = critique_document(context.context_json, document.markdown)
 
     return DocumentResponse(
         video_id=video_id,
         markdown=document.markdown,
+        quality_summary=quality_summary,
         updated_at=document.updated_at,
     )
 

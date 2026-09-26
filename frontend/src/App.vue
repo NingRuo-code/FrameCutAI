@@ -93,6 +93,15 @@ type VideoContextResponse = {
 type GeneratedDocument = {
   video_id: string;
   markdown: string;
+  quality_summary: {
+    status: string;
+    warning_count: number;
+    warnings: {
+      code: string;
+      message: string;
+      severity: string;
+    }[];
+  };
   updated_at: string;
 };
 
@@ -122,6 +131,7 @@ const providerCalls = computed(() => videoContext.value?.provider_calls ?? []);
 const renderedDocument = computed(() =>
   generatedDocument.value ? renderMarkdown(generatedDocument.value.markdown) : "",
 );
+const documentQuality = computed(() => generatedDocument.value?.quality_summary ?? null);
 
 async function loadHealth() {
   try {
@@ -624,8 +634,20 @@ onMounted(async () => {
         <p v-else-if="!generatedDocument">
           Run analysis to generate traceable Markdown notes.
         </p>
+        <div v-if="documentQuality" class="quality-panel">
+          <div class="quality-summary" :class="{ warning: documentQuality.status !== 'passed' }">
+            <strong>{{ documentQuality.status }}</strong>
+            <span>{{ documentQuality.warning_count }} warnings</span>
+          </div>
+          <ul v-if="documentQuality.warnings.length > 0" class="quality-warning-list">
+            <li v-for="warning in documentQuality.warnings" :key="`${warning.code}-${warning.message}`">
+              <strong>{{ warning.code }}</strong>
+              <span>{{ warning.message }}</span>
+            </li>
+          </ul>
+        </div>
         <article
-          v-else
+          v-if="generatedDocument"
           class="markdown-document"
           v-html="renderedDocument"
         />

@@ -58,4 +58,5 @@ class VideoContextResponse(BaseModel):
 class DocumentResponse(BaseModel):
     video_id: str
     markdown: str
+    quality_summary: dict[str, Any]
     updated_at: datetime

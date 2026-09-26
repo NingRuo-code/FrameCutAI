@@ -378,6 +378,51 @@ li {
   gap: 12px;
 }
 
+.quality-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.quality-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #b9d7c5;
+  border-radius: 8px;
+  background: #f4fbf6;
+  color: #1e6b3b;
+}
+
+.quality-summary.warning {
+  border-color: #e2cf9a;
+  background: #fff9e8;
+  color: #7a5b00;
+}
+
+.quality-warning-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quality-warning-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid #e2cf9a;
+  border-radius: 8px;
+  background: #fffdf5;
+}
+
+.quality-warning-list strong {
+  color: #7a5b00;
+  font-size: 13px;
+}
+
 .markdown-document h1,
 .markdown-document h2,
 .markdown-document h3,
