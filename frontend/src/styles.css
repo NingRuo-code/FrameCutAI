@@ -281,6 +281,93 @@ li {
   opacity: 0.68;
 }
 
+.context-debug {
+  max-height: 58vh;
+  overflow: auto;
+}
+
+.debug-summary,
+.score-grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.debug-summary span,
+.score-grid span {
+  padding: 4px 8px;
+  border: 1px solid #c9d5dd;
+  border-radius: 999px;
+  background: #f8fafb;
+  color: #32607f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.debug-group {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.debug-group h4 {
+  margin: 0;
+  color: #17202a;
+  font-size: 14px;
+}
+
+.debug-item {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.debug-item p {
+  margin-bottom: 0;
+  font-size: 13px;
+}
+
+.debug-item small {
+  color: #526371;
+  overflow-wrap: anywhere;
+}
+
+.debug-item-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #32607f;
+  font-size: 13px;
+}
+
+.frame-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.frame-list li,
+.provider-call {
+  background: #f8fafb;
+}
+
+.frame-list li {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.frame-list span {
+  color: #43515d;
+  font-size: 13px;
+}
+
 .player-placeholder {
   display: grid;
   min-height: 180px;

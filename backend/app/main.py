@@ -13,8 +13,14 @@ from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
 from app.database import SessionLocal, get_db, init_db
-from app.models import TaskEvent, Video
-from app.schemas import AnalyzeResponse, TaskEventResponse, VideoResponse
+from app.models import ProviderCall, TaskEvent, Video, VideoContext
+from app.schemas import (
+    AnalyzeResponse,
+    ProviderCallResponse,
+    TaskEventResponse,
+    VideoContextResponse,
+    VideoResponse,
+)
 from app.storage import (
     create_video_id,
     delete_video_artifacts,
@@ -22,6 +28,7 @@ from app.storage import (
     validate_video_upload,
 )
 from app.workflow import list_task_events, record_task_event, run_mock_workflow
+from app.video_context import get_video_context, list_provider_calls
 
 
 class HealthResponse(BaseModel):
@@ -142,6 +149,30 @@ def get_video_event_history(video_id: str, db: Session = Depends(get_db)) -> lis
     return [TaskEventResponse.model_validate(event) for event in list_task_events(db, video_id)]
 
 
+@app.get("/videos/{video_id}/context", response_model=VideoContextResponse)
+def get_video_context_response(video_id: str, db: Session = Depends(get_db)) -> VideoContextResponse:
+    if db.get(Video, video_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
+
+    context = get_video_context(db, video_id)
+    if context is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="VideoContext not found.",
+        )
+
+    provider_calls = [
+        ProviderCallResponse.model_validate(call)
+        for call in list_provider_calls(db, video_id)
+    ]
+    return VideoContextResponse(
+        video_id=video_id,
+        context=context.context_json,
+        provider_calls=provider_calls,
+        updated_at=context.updated_at,
+    )
+
+
 def format_sse_event(event: TaskEventResponse) -> str:
     payload = event.model_dump(mode="json")
     return f"id: {event.id}\nevent: workflow_event\ndata: {json.dumps(payload)}\n\n"
@@ -194,6 +225,10 @@ def delete_video(video_id: str, db: Session = Depends(get_db)) -> None:
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
 
+    for provider_call in db.scalars(select(ProviderCall).where(ProviderCall.video_id == video_id)):
+        db.delete(provider_call)
+    for context in db.scalars(select(VideoContext).where(VideoContext.video_id == video_id)):
+        db.delete(context)
     for event in db.scalars(select(TaskEvent).where(TaskEvent.video_id == video_id)):
         db.delete(event)
     db.delete(video)

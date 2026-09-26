@@ -28,22 +28,89 @@ type TaskEvent = {
   created_at: string;
 };
 
+type SegmentScore = {
+  source: string;
+  technical_density: number;
+  visual_dependency: number;
+  operation_density: number;
+  novelty: number;
+  watch_value: number;
+  confidence: number;
+  reason: string;
+};
+
+type FrameContext = {
+  frame_id: string;
+  timestamp_seconds: number;
+  image_path: string;
+  ocr_text: string;
+  visual_summary: string;
+};
+
+type SegmentContext = {
+  segment_id: string;
+  start_seconds: number;
+  end_seconds: number;
+  transcript_text: string;
+  score: SegmentScore;
+  selected_for_vision: boolean;
+  frames: FrameContext[];
+};
+
+type EvidenceContext = {
+  evidence_id: string;
+  segment_id: string;
+  start_seconds: number;
+  end_seconds: number;
+  summary: string;
+  transcript_snippet: string;
+  frame_ids: string[];
+};
+
+type ProviderCall = {
+  id: number;
+  provider: string;
+  operation: string;
+  latency_ms: number;
+  input_units: number;
+  output_units: number;
+  estimated_cost_usd: number;
+};
+
+type VideoContextPayload = {
+  stage: string;
+  segments: SegmentContext[];
+  evidence: EvidenceContext[];
+};
+
+type VideoContextResponse = {
+  video_id: string;
+  context: VideoContextPayload;
+  provider_calls: ProviderCall[];
+  updated_at: string;
+};
+
 const health = ref<HealthState | null>(null);
 const healthError = ref("");
 const videos = ref<VideoTask[]>([]);
 const activeVideoId = ref("");
 const taskEvents = ref<TaskEvent[]>([]);
+const videoContext = ref<VideoContextResponse | null>(null);
 const eventSource = ref<EventSource | null>(null);
 const selectedFile = ref<File | null>(null);
 const isUploading = ref(false);
 const isAnalyzing = ref(false);
 const taskError = ref("");
 const taskNotice = ref("");
+const contextError = ref("");
 
 const hasVideos = computed(() => videos.value.length > 0);
 const activeVideo = computed(
   () => videos.value.find((video) => video.id === activeVideoId.value) ?? null,
 );
+const contextSegments = computed(() => videoContext.value?.context.segments ?? []);
+const contextEvidence = computed(() => videoContext.value?.context.evidence ?? []);
+const providerCalls = computed(() => videoContext.value?.provider_calls ?? []);
 
 async function loadHealth() {
   try {
@@ -117,7 +184,7 @@ async function uploadVideo() {
 
 async function selectVideo(video: VideoTask) {
   activeVideoId.value = video.id;
-  await loadEventHistory(video.id);
+  await Promise.all([loadEventHistory(video.id), loadVideoContext(video.id)]);
 }
 
 async function loadEventHistory(videoId = activeVideoId.value) {
@@ -145,6 +212,29 @@ function appendTaskEvent(event: TaskEvent) {
   taskEvents.value = [...taskEvents.value, event].sort((a, b) => a.id - b.id);
 }
 
+async function loadVideoContext(videoId = activeVideoId.value) {
+  contextError.value = "";
+  if (!videoId) {
+    videoContext.value = null;
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/videos/${videoId}/context`);
+    if (response.status === 404) {
+      videoContext.value = null;
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`Could not load VideoContext: ${response.status}`);
+    }
+    videoContext.value = await response.json();
+  } catch (error) {
+    contextError.value =
+      error instanceof Error ? error.message : "Unable to load VideoContext";
+  }
+}
+
 function connectEventStream(videoId: string) {
   eventSource.value?.close();
   const source = new EventSource(`/api/videos/${videoId}/events`);
@@ -157,6 +247,7 @@ function connectEventStream(videoId: string) {
       source.close();
       eventSource.value = null;
       void loadVideos();
+      void loadVideoContext(videoId);
     }
   });
 
@@ -182,6 +273,7 @@ async function startAnalysis(video: VideoTask) {
     taskNotice.value = `Mock Workflow queued for ${video.original_filename}.`;
     connectEventStream(video.id);
     await loadVideos();
+    await loadVideoContext(video.id);
   } catch (error) {
     taskError.value =
       error instanceof Error ? error.message : "Unable to start Workflow";
@@ -207,6 +299,7 @@ async function deleteVideo(video: VideoTask) {
       eventSource.value = null;
       activeVideoId.value = "";
       taskEvents.value = [];
+      videoContext.value = null;
     }
     await loadVideos();
   } catch (error) {
@@ -339,9 +432,79 @@ onMounted(async () => {
         </ol>
       </section>
 
-      <section class="placeholder-block">
+      <section class="placeholder-block context-debug">
         <h3>VideoContext debug</h3>
-        <p>Segments, scores, Frames, and Evidence summaries will appear here.</p>
+        <p v-if="contextError" class="error-text">{{ contextError }}</p>
+        <p v-else-if="!videoContext">
+          Run analysis to inspect Segments, scores, Frames, Evidence, and Provider calls.
+        </p>
+        <template v-else>
+          <div class="debug-summary">
+            <span>{{ videoContext.context.stage }}</span>
+            <span>{{ contextSegments.length }} Segments</span>
+            <span>{{ providerCalls.length }} Provider calls</span>
+          </div>
+
+          <div class="debug-group">
+            <h4>Segments</h4>
+            <article
+              v-for="segment in contextSegments"
+              :key="segment.segment_id"
+              class="debug-item"
+            >
+              <div class="debug-item-header">
+                <strong>{{ segment.segment_id }}</strong>
+                <span>{{ segment.start_seconds }}s-{{ segment.end_seconds }}s</span>
+              </div>
+              <p>{{ segment.transcript_text || "No transcript in this Segment." }}</p>
+              <div class="score-grid">
+                <span>score: {{ segment.score.source }}</span>
+                <span>visual {{ segment.score.visual_dependency }}</span>
+                <span>watch {{ segment.score.watch_value }}</span>
+                <span>{{ segment.selected_for_vision ? "vision" : "asr-only" }}</span>
+              </div>
+              <ul v-if="segment.frames.length > 0" class="frame-list">
+                <li v-for="frame in segment.frames" :key="frame.frame_id">
+                  <strong>{{ frame.timestamp_seconds }}s</strong>
+                  <span>{{ frame.ocr_text }}</span>
+                  <small>{{ frame.visual_summary }}</small>
+                </li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="debug-group">
+            <h4>Evidence</h4>
+            <article
+              v-for="item in contextEvidence"
+              :key="item.evidence_id"
+              class="debug-item"
+            >
+              <div class="debug-item-header">
+                <strong>{{ item.segment_id }}</strong>
+                <span>{{ item.start_seconds }}s-{{ item.end_seconds }}s</span>
+              </div>
+              <p>{{ item.summary }}</p>
+              <small>Frames: {{ item.frame_ids.join(", ") || "none" }}</small>
+            </article>
+          </div>
+
+          <div class="debug-group">
+            <h4>Provider calls</h4>
+            <article
+              v-for="call in providerCalls"
+              :key="call.id"
+              class="debug-item provider-call"
+            >
+              <strong>{{ call.provider }}</strong>
+              <span>{{ call.operation }}</span>
+              <small>
+                {{ call.latency_ms }}ms · in {{ call.input_units }} · out
+                {{ call.output_units }} · ${{ call.estimated_cost_usd.toFixed(4) }}
+              </small>
+            </article>
+          </div>
+        </template>
       </section>
     </section>
 
