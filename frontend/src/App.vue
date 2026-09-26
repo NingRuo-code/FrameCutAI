@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 type HealthState = {
   status: string;
@@ -8,10 +8,28 @@ type HealthState = {
   message: string;
 };
 
+type VideoTask = {
+  id: string;
+  title: string;
+  original_filename: string;
+  content_type: string;
+  file_size: number;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 const health = ref<HealthState | null>(null);
 const healthError = ref("");
+const videos = ref<VideoTask[]>([]);
+const selectedFile = ref<File | null>(null);
+const isUploading = ref(false);
+const taskError = ref("");
+const taskNotice = ref("");
 
-onMounted(async () => {
+const hasVideos = computed(() => videos.value.length > 0);
+
+async function loadHealth() {
   try {
     const response = await fetch("/api/health");
     if (!response.ok) {
@@ -22,6 +40,92 @@ onMounted(async () => {
     healthError.value =
       error instanceof Error ? error.message : "Unable to reach backend";
   }
+}
+
+async function loadVideos() {
+  taskError.value = "";
+  try {
+    const response = await fetch("/api/videos");
+    if (!response.ok) {
+      throw new Error(`Could not load Videos: ${response.status}`);
+    }
+    videos.value = await response.json();
+  } catch (error) {
+    taskError.value =
+      error instanceof Error ? error.message : "Unable to load Videos";
+  }
+}
+
+function onFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  selectedFile.value = input.files?.[0] ?? null;
+}
+
+async function uploadVideo() {
+  if (!selectedFile.value) {
+    taskError.value = "Choose a local Video before uploading.";
+    return;
+  }
+
+  taskError.value = "";
+  taskNotice.value = "";
+  isUploading.value = true;
+
+  const formData = new FormData();
+  formData.append("file", selectedFile.value);
+
+  try {
+    const response = await fetch("/api/videos", {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null);
+      throw new Error(errorBody?.detail ?? `Upload failed: ${response.status}`);
+    }
+    const created: VideoTask = await response.json();
+    taskNotice.value = `${created.original_filename} uploaded.`;
+    selectedFile.value = null;
+    await loadVideos();
+  } catch (error) {
+    taskError.value =
+      error instanceof Error ? error.message : "Unable to upload Video";
+  } finally {
+    isUploading.value = false;
+  }
+}
+
+async function deleteVideo(video: VideoTask) {
+  taskError.value = "";
+  taskNotice.value = "";
+
+  try {
+    const response = await fetch(`/api/videos/${video.id}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(`Delete failed: ${response.status}`);
+    }
+    taskNotice.value = `${video.original_filename} deleted.`;
+    await loadVideos();
+  } catch (error) {
+    taskError.value =
+      error instanceof Error ? error.message : "Unable to delete Video";
+  }
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+onMounted(async () => {
+  await Promise.all([loadHealth(), loadVideos()]);
 });
 </script>
 
@@ -35,12 +139,45 @@ onMounted(async () => {
 
       <section class="placeholder-block">
         <h2>Upload</h2>
-        <p>Local technical Video upload will appear here in the next slice.</p>
+        <form class="upload-form" @submit.prevent="uploadVideo">
+          <input
+            type="file"
+            accept="video/mp4,video/quicktime,video/x-matroska,video/webm,video/x-msvideo,.mp4,.mov,.mkv,.webm,.avi"
+            @change="onFileChange"
+          />
+          <button type="submit" :disabled="isUploading">
+            {{ isUploading ? "Uploading..." : "Upload Video" }}
+          </button>
+        </form>
+        <p class="hint-text">
+          Accepted MVP formats: MP4, MOV, MKV, WebM, and AVI.
+        </p>
       </section>
 
       <section class="placeholder-block">
-        <h2>Task list</h2>
-        <p>No Videos yet. This area is reserved for local task management.</p>
+        <div class="section-title-row">
+          <h2>Task list</h2>
+          <button class="secondary-button" type="button" @click="loadVideos">
+            Refresh
+          </button>
+        </div>
+
+        <p v-if="taskError" class="error-text">{{ taskError }}</p>
+        <p v-if="taskNotice" class="success-text">{{ taskNotice }}</p>
+        <p v-if="!hasVideos">No Videos yet. Upload a local technical Video.</p>
+
+        <ul v-else class="video-list">
+          <li v-for="video in videos" :key="video.id" class="video-list-item">
+            <div>
+              <strong>{{ video.title }}</strong>
+              <span>{{ video.original_filename }}</span>
+              <small>{{ video.status }} · {{ formatBytes(video.file_size) }}</small>
+            </div>
+            <button type="button" class="danger-button" @click="deleteVideo(video)">
+              Delete
+            </button>
+          </li>
+        </ul>
       </section>
     </aside>
 
