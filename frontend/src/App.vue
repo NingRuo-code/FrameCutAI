@@ -19,15 +19,31 @@ type VideoTask = {
   updated_at: string;
 };
 
+type TaskEvent = {
+  id: number;
+  video_id: string;
+  stage: string;
+  level: string;
+  message: string;
+  created_at: string;
+};
+
 const health = ref<HealthState | null>(null);
 const healthError = ref("");
 const videos = ref<VideoTask[]>([]);
+const activeVideoId = ref("");
+const taskEvents = ref<TaskEvent[]>([]);
+const eventSource = ref<EventSource | null>(null);
 const selectedFile = ref<File | null>(null);
 const isUploading = ref(false);
+const isAnalyzing = ref(false);
 const taskError = ref("");
 const taskNotice = ref("");
 
 const hasVideos = computed(() => videos.value.length > 0);
+const activeVideo = computed(
+  () => videos.value.find((video) => video.id === activeVideoId.value) ?? null,
+);
 
 async function loadHealth() {
   try {
@@ -50,6 +66,9 @@ async function loadVideos() {
       throw new Error(`Could not load Videos: ${response.status}`);
     }
     videos.value = await response.json();
+    if (!activeVideoId.value && videos.value.length > 0) {
+      await selectVideo(videos.value[0]);
+    }
   } catch (error) {
     taskError.value =
       error instanceof Error ? error.message : "Unable to load Videos";
@@ -87,11 +106,87 @@ async function uploadVideo() {
     taskNotice.value = `${created.original_filename} uploaded.`;
     selectedFile.value = null;
     await loadVideos();
+    await selectVideo(created);
   } catch (error) {
     taskError.value =
       error instanceof Error ? error.message : "Unable to upload Video";
   } finally {
     isUploading.value = false;
+  }
+}
+
+async function selectVideo(video: VideoTask) {
+  activeVideoId.value = video.id;
+  await loadEventHistory(video.id);
+}
+
+async function loadEventHistory(videoId = activeVideoId.value) {
+  if (!videoId) {
+    taskEvents.value = [];
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/videos/${videoId}/events/history`);
+    if (!response.ok) {
+      throw new Error(`Could not load events: ${response.status}`);
+    }
+    taskEvents.value = await response.json();
+  } catch (error) {
+    taskError.value =
+      error instanceof Error ? error.message : "Unable to load Workflow events";
+  }
+}
+
+function appendTaskEvent(event: TaskEvent) {
+  if (taskEvents.value.some((existing) => existing.id === event.id)) {
+    return;
+  }
+  taskEvents.value = [...taskEvents.value, event].sort((a, b) => a.id - b.id);
+}
+
+function connectEventStream(videoId: string) {
+  eventSource.value?.close();
+  const source = new EventSource(`/api/videos/${videoId}/events`);
+  eventSource.value = source;
+
+  source.addEventListener("workflow_event", (message) => {
+    const event = JSON.parse((message as MessageEvent).data) as TaskEvent;
+    appendTaskEvent(event);
+    if (event.message === "Mock Workflow completed.") {
+      source.close();
+      eventSource.value = null;
+      void loadVideos();
+    }
+  });
+
+  source.onerror = () => {
+    source.close();
+    eventSource.value = null;
+  };
+}
+
+async function startAnalysis(video: VideoTask) {
+  taskError.value = "";
+  taskNotice.value = "";
+  isAnalyzing.value = true;
+  await selectVideo(video);
+
+  try {
+    const response = await fetch(`/api/videos/${video.id}/analyze`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error(`Analyze failed: ${response.status}`);
+    }
+    taskNotice.value = `Mock Workflow queued for ${video.original_filename}.`;
+    connectEventStream(video.id);
+    await loadVideos();
+  } catch (error) {
+    taskError.value =
+      error instanceof Error ? error.message : "Unable to start Workflow";
+  } finally {
+    isAnalyzing.value = false;
   }
 }
 
@@ -107,6 +202,12 @@ async function deleteVideo(video: VideoTask) {
       throw new Error(`Delete failed: ${response.status}`);
     }
     taskNotice.value = `${video.original_filename} deleted.`;
+    if (activeVideoId.value === video.id) {
+      eventSource.value?.close();
+      eventSource.value = null;
+      activeVideoId.value = "";
+      taskEvents.value = [];
+    }
     await loadVideos();
   } catch (error) {
     taskError.value =
@@ -167,15 +268,30 @@ onMounted(async () => {
         <p v-if="!hasVideos">No Videos yet. Upload a local technical Video.</p>
 
         <ul v-else class="video-list">
-          <li v-for="video in videos" :key="video.id" class="video-list-item">
-            <div>
+          <li
+            v-for="video in videos"
+            :key="video.id"
+            class="video-list-item"
+            :class="{ active: video.id === activeVideoId }"
+          >
+            <button class="video-summary-button" type="button" @click="selectVideo(video)">
               <strong>{{ video.title }}</strong>
               <span>{{ video.original_filename }}</span>
               <small>{{ video.status }} · {{ formatBytes(video.file_size) }}</small>
-            </div>
-            <button type="button" class="danger-button" @click="deleteVideo(video)">
-              Delete
             </button>
+            <div class="task-actions">
+              <button
+                type="button"
+                class="secondary-button"
+                :disabled="isAnalyzing"
+                @click="startAnalysis(video)"
+              >
+                Analyze
+              </button>
+              <button type="button" class="danger-button" @click="deleteVideo(video)">
+                Delete
+              </button>
+            </div>
           </li>
         </ul>
       </section>
@@ -204,12 +320,22 @@ onMounted(async () => {
 
       <section class="placeholder-block timeline">
         <h3>Stage timeline</h3>
-        <ol>
-          <li>ASR / transcript</li>
-          <li>Segment scoring</li>
-          <li>Selective Frame extraction</li>
-          <li>VideoContext persistence</li>
-          <li>Document and QA</li>
+        <p v-if="activeVideo">
+          Showing persisted Workflow events for {{ activeVideo.original_filename }}.
+        </p>
+        <p v-else>Select or upload a Video to see Workflow events.</p>
+        <ol v-if="taskEvents.length > 0" class="event-list">
+          <li v-for="event in taskEvents" :key="event.id">
+            <span>{{ event.stage }}</span>
+            <strong>{{ event.message }}</strong>
+          </li>
+        </ol>
+        <ol v-else class="event-list muted-events">
+          <li><span>asr</span><strong>Waiting for mock Workflow</strong></li>
+          <li><span>segmenting</span><strong>Waiting for mock Workflow</strong></li>
+          <li><span>scoring</span><strong>Waiting for mock Workflow</strong></li>
+          <li><span>vision</span><strong>Waiting for mock Workflow</strong></li>
+          <li><span>document</span><strong>Waiting for mock Workflow</strong></li>
         </ol>
       </section>
 

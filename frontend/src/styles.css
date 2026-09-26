@@ -178,13 +178,18 @@ li {
 
 .video-list-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   padding: 12px;
   border: 1px solid #dbe3e8;
   border-radius: 8px;
   background: #f8fafb;
+}
+
+.video-list-item.active {
+  border-color: #7fa6bb;
+  background: #eef6fa;
 }
 
 .video-list-item strong,
@@ -200,6 +205,21 @@ li {
 .video-list-item span,
 .video-list-item small {
   overflow-wrap: anywhere;
+}
+
+.video-summary-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.task-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .status-card {
@@ -229,6 +249,36 @@ li {
   gap: 10px;
   margin: 0;
   padding-left: 22px;
+}
+
+.event-list {
+  padding-left: 0;
+  list-style: none;
+}
+
+.event-list li {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.event-list span {
+  color: #32607f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.event-list strong {
+  color: #17202a;
+  font-size: 14px;
+}
+
+.muted-events li {
+  opacity: 0.68;
 }
 
 .player-placeholder {

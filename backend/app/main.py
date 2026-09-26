@@ -1,22 +1,27 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import asyncio
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.responses import StreamingResponse
 
-from app.database import get_db, init_db
-from app.models import Video
-from app.schemas import VideoResponse
+from app.database import SessionLocal, get_db, init_db
+from app.models import TaskEvent, Video
+from app.schemas import AnalyzeResponse, TaskEventResponse, VideoResponse
 from app.storage import (
     create_video_id,
     delete_video_artifacts,
     save_video_file,
     validate_video_upload,
 )
+from app.workflow import list_task_events, record_task_event, run_mock_workflow
 
 
 class HealthResponse(BaseModel):
@@ -99,12 +104,98 @@ def get_video(video_id: str, db: Session = Depends(get_db)) -> Video:
     return video
 
 
+@app.post(
+    "/videos/{video_id}/analyze",
+    response_model=AnalyzeResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def analyze_video(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> AnalyzeResponse:
+    video = db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
+
+    video.status = "processing"
+    db.commit()
+    record_task_event(
+        db,
+        video_id=video_id,
+        stage="workflow",
+        level="info",
+        message="Mock Workflow queued.",
+    )
+    background_tasks.add_task(run_mock_workflow, video_id)
+    return AnalyzeResponse(
+        video_id=video_id,
+        status="processing",
+        message="Mock Workflow queued.",
+    )
+
+
+@app.get("/videos/{video_id}/events/history", response_model=list[TaskEventResponse])
+def get_video_event_history(video_id: str, db: Session = Depends(get_db)) -> list[TaskEventResponse]:
+    if db.get(Video, video_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
+    return [TaskEventResponse.model_validate(event) for event in list_task_events(db, video_id)]
+
+
+def format_sse_event(event: TaskEventResponse) -> str:
+    payload = event.model_dump(mode="json")
+    return f"id: {event.id}\nevent: workflow_event\ndata: {json.dumps(payload)}\n\n"
+
+
+@app.get("/videos/{video_id}/events")
+async def stream_video_events(video_id: str) -> StreamingResponse:
+    async def event_stream() -> AsyncIterator[str]:
+        last_event_id = 0
+
+        while True:
+            with SessionLocal() as db:
+                video = db.get(Video, video_id)
+                if video is None:
+                    not_found = TaskEventResponse(
+                        id=0,
+                        video_id=video_id,
+                        stage="workflow",
+                        level="error",
+                        message="Video not found.",
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    yield format_sse_event(not_found)
+                    return
+
+                events = [
+                    event
+                    for event in list_task_events(db, video_id)
+                    if event.id > last_event_id
+                ]
+                for event in events:
+                    last_event_id = event.id
+                    yield format_sse_event(TaskEventResponse.model_validate(event))
+
+                if video.status in {"completed", "failed"} and not events:
+                    return
+
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 @app.delete("/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_video(video_id: str, db: Session = Depends(get_db)) -> None:
     video = db.get(Video, video_id)
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
 
+    for event in db.scalars(select(TaskEvent).where(TaskEvent.video_id == video_id)):
+        db.delete(event)
     db.delete(video)
     db.commit()
     delete_video_artifacts(video_id)
