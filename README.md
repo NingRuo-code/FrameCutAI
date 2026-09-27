@@ -56,3 +56,6 @@ Frontend typecheck and build:
 cd frontend
 npm run build
 ```
+
+API examples for upload, analysis, events, documents, VideoContext, QA, eval,
+and cleanup are in `docs/api-examples.md`.

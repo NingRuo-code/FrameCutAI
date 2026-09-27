@@ -67,4 +67,6 @@ def test_mock_workflow_persists_inspectable_video_context() -> None:
             "MockVisionProvider",
         }
         assert all(call["latency_ms"] >= 0 for call in provider_calls)
+        assert all(call["input_units"] >= 0 for call in provider_calls)
+        assert all(call["output_units"] >= 0 for call in provider_calls)
         assert all(call["estimated_cost_usd"] >= 0 for call in provider_calls)
