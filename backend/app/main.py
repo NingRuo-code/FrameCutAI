@@ -14,11 +14,13 @@ from starlette.responses import FileResponse, StreamingResponse
 
 from app.database import SessionLocal, get_db, init_db
 from app.critic import critique_document, make_warning
+from app.evaluation import run_eval
 from app.models import GeneratedDocument, ProviderCall, QALog, TaskEvent, Video, VideoContext
 from app.qa import answer_from_context, list_qa_logs, persist_qa_log
 from app.schemas import (
     AnalyzeResponse,
     DocumentResponse,
+    EvalRunResponse,
     QARequest,
     QAResponse,
     ProviderCallResponse,
@@ -256,6 +258,11 @@ def ask_video_question(
 
     log = persist_qa_log(db, video_id, request.question, qa_result)
     return QAResponse.model_validate(log)
+
+
+@app.post("/evals/run", response_model=EvalRunResponse)
+def run_mvp_eval() -> EvalRunResponse:
+    return EvalRunResponse.model_validate(run_eval())
 
 
 @app.get("/videos/{video_id}/qa/history", response_model=list[QAResponse])

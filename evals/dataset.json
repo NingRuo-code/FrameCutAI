@@ -1,0 +1,30 @@
+{
+  "items": [
+    {
+      "video_id": "mock-technical-walkthrough",
+      "question": "Which implementation detail on screen proves the upload flow is connected to task state?",
+      "expected_answer": "The API and Vue workspace state are visible around the 0-60 second evidence window.",
+      "evidence_timestamps": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 60
+        }
+      ],
+      "requires_vision": true,
+      "category": "api-ui-traceability"
+    },
+    {
+      "video_id": "mock-technical-walkthrough",
+      "question": "When does the Agent progress timeline start receiving workflow events?",
+      "expected_answer": "The workflow event discussion appears in the 60-120 second evidence window.",
+      "evidence_timestamps": [
+        {
+          "start_seconds": 60,
+          "end_seconds": 120
+        }
+      ],
+      "requires_vision": false,
+      "category": "workflow-progress"
+    }
+  ]
+}

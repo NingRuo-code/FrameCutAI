@@ -87,3 +87,12 @@ class QAResponse(BaseModel):
     confidence: float
     refusal_reason: str | None
     created_at: datetime
+
+
+class EvalRunResponse(BaseModel):
+    run_id: str
+    completed_at: str
+    item_count: int
+    dataset_path: str
+    strategies: list[dict[str, Any]]
+    artifacts: dict[str, str]
